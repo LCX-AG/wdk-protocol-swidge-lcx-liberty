@@ -121,6 +121,7 @@ new LcxLibertySwidgeProtocol(account, {
 
   tokensPerChain: 200, // getSupportedTokens page size per chain (1-200)
   timeoutMs: 30_000, // per API request
+  retries: 2, // a rate-limited (429) call is sent again after the wait the API asks for, up to 10 s
   receiptTimeoutMs: 180_000, // how long swidge() waits for an approval to confirm
   receiptPollMs: 2_000,
   approvalSettleMs: 500, // pause between an approval confirming and the swap being signed
@@ -141,7 +142,7 @@ await protocol.swidge(options, { maxNetworkFeeBps: 20 })
 
 | `SwidgeOptions` field | Supported | Notes |
 | --- | --- | --- |
-| `fromToken`, `toToken` | Yes | Token addresses. For the native coin use `'native'`, the zero address, or `0xEeee…EEeE`. |
+| `fromToken`, `toToken` | Yes | Token addresses. For the native coin use `'native'`, the zero address, or `0xEeee…EEeE`. On Arc the gas coin is USDC, an ERC-20, so pass its token address instead. |
 | `fromTokenAmount` | Yes | Base units, as a `bigint`. |
 | `toTokenAmount` | **No** | LCX Liberty DEX quotes exact-input only, so this throws `LcxLibertyUnsupportedError`. |
 | `toChain` | Yes | A chain id, or a name such as `'ethereum'`, `'base'`, `'arbitrum'`, `'optimism'`, `'polygon'`, `'bsc'`, `'avalanche'` or `'robinhood'`. Other names are looked up in `getSupportedChains()`. Omit it to stay on the same chain. |
@@ -152,6 +153,13 @@ await protocol.swidge(options, { maxNetworkFeeBps: 20 })
 
 `swidge()` always fetches a fresh quote. Quotes are short-lived: about 120 seconds for a same-chain
 swap and about 25 seconds for a cross-chain route.
+
+## Rate limits
+
+Every key has a plan. The Free plan allows 5 requests a second and 300 a minute, and a slow call (a
+token list, a long route) costs more than one. When the API answers 429, the module waits as long as
+the API asks and sends the call again, up to `retries` times. `getSupportedTokens()` across every
+chain fetches one chain at a time. Cache its result rather than calling it on every screen.
 
 ## Storing the API key
 
@@ -231,7 +239,7 @@ handle any other swidge provider, and read `code` when you want the detail.
 | `LcxLibertyUnsupportedError` | `ValueError` | Exact-output, a cross-chain recipient other than the sender, or an unknown chain. |
 | `InvalidTokenError` (WDK) | `WdkError` | A token that is not an address or a native alias. |
 | `LcxLibertyAccountRequiredError` | `AccountRequiredError` | `swidge()` without a signing account. |
-| `LcxLibertyApiError` | `ProviderError` | An API error, timeout or network failure. `code` is the API's code, `status` the HTTP status, and `retryAfter` the seconds to wait when the status is 429. |
+| `LcxLibertyApiError` | `ProviderError` | An API error, timeout or network failure. `code` is the API's code, `status` the HTTP status, and `retryAfter` the seconds to wait when the status is 429 (the module has already retried by then). |
 | `LcxLibertyNoRouteError` | `LcxLibertyApiError` | No route for this pair, amount or chain pair right now. |
 | `LcxLibertyFeeLimitExceededError` | `MaximumFeeExceededError` | A fee cap was exceeded or could not be measured. |
 | `LcxLibertyMinAmountOutError` | `SwidgeError` | The fresh quote guarantees less than `minAmountOut`. |

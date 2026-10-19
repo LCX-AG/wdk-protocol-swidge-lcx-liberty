@@ -56,6 +56,7 @@ import {
  * @property {number} [deadlineSecs] - Validity window of a same-chain swap transaction. API default 300, maximum 3600.
  * @property {number} [tokensPerChain] - How many tokens `getSupportedTokens` returns per chain (1-200). Defaults to 200.
  * @property {number} [timeoutMs] - Per-request API timeout. Defaults to 30 000 ms.
+ * @property {number} [retries] - How many times a rate-limited (429) API call is sent again, after the wait the API asks for (at most 10 s). Defaults to 2.
  * @property {number} [receiptTimeoutMs] - How long `swidge` waits for an approval to confirm. Defaults to 180 000 ms.
  * @property {number} [receiptPollMs] - Poll interval while waiting for an approval. Defaults to 2 000 ms.
  * @property {number} [approvalSettleMs] - Pause after an approval confirms, before the swap is signed. Defaults to 500 ms.
@@ -161,7 +162,7 @@ export default class LcxLibertySwidgeProtocol extends SwidgeProtocol {
     this._config = config
 
     /** @protected */
-    this._api = new LcxLibertyApiClient({ apiKey: config.apiKey, baseUrl, timeoutMs: config.timeoutMs, fetch: config.fetch })
+    this._api = new LcxLibertyApiClient({ apiKey: config.apiKey, baseUrl, timeoutMs: config.timeoutMs, retries: config.retries, fetch: config.fetch })
 
     /** @private */
     this._provider = config.provider ?? account?._config?.provider
@@ -301,7 +302,10 @@ export default class LcxLibertySwidgeProtocol extends SwidgeProtocol {
       : (await this.getSupportedChains()).map(chain => Number(chain.id))
     const limit = Math.min(Math.max(Number(this._config.tokensPerChain ?? 200), 1), 200)
 
-    const pages = await Promise.all(chainIds.map(chainId => this._api.tokens({ chainId, limit })))
+    // One chain at a time: a token list is an expensive call, and twelve at once
+    // would spend a Free plan's whole per-second allowance.
+    const pages = []
+    for (const chainId of chainIds) pages.push(await this._api.tokens({ chainId, limit }))
     return pages.flatMap(page => (page?.tokens ?? []).map(row => ({
       token: row.address ?? row.id,
       chain: row.chainId,

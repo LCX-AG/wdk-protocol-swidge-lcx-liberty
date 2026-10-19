@@ -161,6 +161,10 @@ export type LcxLibertySwidgeProtocolConfig = {
      */
     timeoutMs?: number;
     /**
+     * - How many times a rate-limited (429) API call is sent again, after the wait the API asks for (at most 10 s). Defaults to 2.
+     */
+    retries?: number;
+    /**
      * - How long `swidge` waits for an approval to confirm. Defaults to 180 000 ms.
      */
     receiptTimeoutMs?: number;

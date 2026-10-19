@@ -13,4 +13,5 @@ First release.
 - `getSwidgeStatus` reads same-chain swidges from the receipt and cross-chain swidges from the LCX
   Liberty transfer tracker, mapped to WDK statuses.
 - `getSupportedChains` and `getSupportedTokens` from the live API.
+- Retries a rate-limited (429) call after the wait the API asks for; `getSupportedTokens` fetches one chain at a time.
 - Every error extends a WDK standard error.

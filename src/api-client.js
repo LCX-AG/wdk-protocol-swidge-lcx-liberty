@@ -18,6 +18,8 @@ import { LcxLibertyApiError, LcxLibertyNoRouteError } from './errors.js'
 
 export const DEFAULT_BASE_URL = 'https://swap-api.lcx.com'
 const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_RETRIES = 2
+const MAX_RETRY_WAIT_MS = 10_000
 
 // API error codes that mean "there is no way to do this trade right now", as
 // opposed to a malformed request or an outage. They surface as
@@ -38,6 +40,7 @@ const NO_ROUTE_CODES = new Set([
  * @property {string} [apiKey] - Sent as `Authorization: Bearer <apiKey>`. Leave unset only when `baseUrl` is your own proxy that adds the key.
  * @property {string} [baseUrl] - API origin, without a trailing slash. Defaults to https://swap-api.lcx.com.
  * @property {number} [timeoutMs] - Per-request timeout. Defaults to 30 000 ms.
+ * @property {number} [retries] - How many times a rate-limited (429) call is sent again. Defaults to 2.
  * @property {typeof fetch} [fetch] - A fetch implementation, for runtimes without a global one and for tests.
  */
 
@@ -52,16 +55,35 @@ export default class LcxLibertyApiClient {
     this._apiKey = options.apiKey
     this._baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '')
     this._timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    this._retries = options.retries ?? DEFAULT_RETRIES
     this._fetch = options.fetch ?? globalThis.fetch
   }
 
   /**
+   * Sends a request. A 429 is retried after the `Retry-After` the API asks for: the
+   * API refuses a rate-limited call before doing any work, so sending it again is
+   * always safe. A wait longer than 10 s (a temporary block) is not retried.
+   *
    * @param {'GET' | 'POST'} method
    * @param {string} path - Starts with `/`.
    * @param {{ query?: Record<string, string | number | boolean | undefined>, body?: unknown }} [options]
    * @returns {Promise<any>} The envelope's `data`.
    */
-  async request (method, path, { query, body } = {}) {
+  async request (method, path, options = {}) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this._send(method, path, options)
+      } catch (error) {
+        if (!(error instanceof LcxLibertyApiError) || error.status !== 429 || attempt >= this._retries) throw error
+        const waitMs = (Number.isFinite(error.retryAfter) ? error.retryAfter : 1) * 1000
+        if (waitMs > MAX_RETRY_WAIT_MS) throw error
+        await new Promise(resolve => setTimeout(resolve, waitMs))
+      }
+    }
+  }
+
+  /** @private */
+  async _send (method, path, { query, body } = {}) {
     if (typeof this._fetch !== 'function') {
       throw new LcxLibertyApiError('No fetch implementation is available; pass config.fetch.')
     }

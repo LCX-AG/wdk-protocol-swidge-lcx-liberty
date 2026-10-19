@@ -30,7 +30,13 @@ const MNEMONIC = process.env.MNEMONIC ?? 'test test test test test test test tes
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const USDC_POLYGON = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'
 
-const config = { apiKey: process.env.LCX_API_KEY }
+// A fork's transactions never reach the real chain, so the transfer tracker must not
+// be told about one: it would wait for a source transaction that does not exist.
+const forkFetch = (url, init) => /\/v1\/bridge\/transfers\/[^/]+\/submitted$/.test(new URL(url).pathname)
+  ? Promise.resolve({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ success: true, data: {} }) })
+  : fetch(url, init)
+
+const config = { apiKey: process.env.LCX_API_KEY, fetch: forkFetch }
 if (process.env.LCX_BASE_URL) config.baseUrl = process.env.LCX_BASE_URL
 
 const log = (...args) => console.log(...args)
@@ -64,6 +70,7 @@ async function main () {
   const receipt = await account.getTransactionReceipt(toPolygon.hash)
   log('   source transaction status on the fork:', receipt?.status)
   log('   USDC left on Base:', (await account.getTokenBalance(USDC_BASE)).toString())
+  log('   tracker status (the bridge never sees a fork transaction):', (await protocol.getSwidgeStatus(toPolygon.id)).status)
 }
 
 async function waitFor (protocol, id) {

@@ -261,13 +261,39 @@ describe('LcxLibertySwidgeProtocol', () => {
       expect(error.code).toBe('no_route')
     })
 
-    test('keeps Retry-After on a rate limit', async () => {
+    test('keeps Retry-After on a rate limit it does not retry', async () => {
       const limited = fakeApi({ 'POST /v1/quote': fail(429, 'RATE_LIMITED', 'Slow down.', { 'retry-after': '1' }) })
-      const p = new LcxLibertySwidgeProtocol(fakeAccount(), { ...BASE_CONFIG, fetch: limited.fetch })
+      const p = new LcxLibertySwidgeProtocol(fakeAccount(), { ...BASE_CONFIG, retries: 0, fetch: limited.fetch })
       const error = await p.quoteSwidge({ fromToken: USDC_BASE, toToken: 'native', fromTokenAmount: 1n }).catch(e => e)
       expect(error).toBeInstanceOf(LcxLibertyApiError)
       expect(error.status).toBe(429)
       expect(error.retryAfter).toBe(1)
+      expect(limited.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    test('retries a rate-limited call after the wait the API asks for', async () => {
+      let calls = 0
+      const limited = fakeApi({
+        'POST /v1/quote': () => ++calls < 3 ? fail(429, 'RATE_LIMITED', 'Slow down.', { 'retry-after': '0' }) : ok({ quote: SAME_CHAIN_QUOTE })
+      })
+      const p = new LcxLibertySwidgeProtocol(fakeAccount(), { ...BASE_CONFIG, fetch: limited.fetch })
+      await expect(p.quoteSwidge({ fromToken: USDC_BASE, toToken: 'native', fromTokenAmount: 1n })).resolves.toBeDefined()
+      expect(limited.fetch).toHaveBeenCalledTimes(3)
+    })
+
+    test('does not wait out a temporary block', async () => {
+      const blocked = fakeApi({ 'POST /v1/quote': fail(429, 'TEMPORARILY_BLOCKED', 'Blocked.', { 'retry-after': '600' }) })
+      const p = new LcxLibertySwidgeProtocol(fakeAccount(), { ...BASE_CONFIG, fetch: blocked.fetch })
+      const error = await p.quoteSwidge({ fromToken: USDC_BASE, toToken: 'native', fromTokenAmount: 1n }).catch(e => e)
+      expect(error.code).toBe('TEMPORARILY_BLOCKED')
+      expect(blocked.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    test('never retries a refusal other than 429', async () => {
+      const refused = fakeApi({ 'POST /v1/quote': fail(400, 'invalid_request') })
+      const p = new LcxLibertySwidgeProtocol(fakeAccount(), { ...BASE_CONFIG, fetch: refused.fetch })
+      await expect(p.quoteSwidge({ fromToken: USDC_BASE, toToken: 'native', fromTokenAmount: 1n })).rejects.toThrow(LcxLibertyApiError)
+      expect(refused.fetch).toHaveBeenCalledTimes(1)
     })
   })
 
@@ -510,8 +536,20 @@ describe('LcxLibertySwidgeProtocol', () => {
       ])
       expect(api.calls.at(-1).query).toEqual({ chainId: '8453', limit: '50' })
 
-      const all = await p.getSupportedTokens()
+      let inFlight = 0
+      let most = 0
+      const slowApi = fakeApi({
+        'GET /v1/chains': ok(CHAINS),
+        'GET /v1/tokens': async ({ query }) => {
+          most = Math.max(most, ++inFlight)
+          await new Promise(resolve => setTimeout(resolve, 5))
+          inFlight--
+          return ok({ tokens: [{ address: USDC_BASE, symbol: 'USDC', name: 'USD Coin', decimals: 6, chainId: Number(query.chainId) }] })
+        }
+      })
+      const all = await new LcxLibertySwidgeProtocol(undefined, { ...BASE_CONFIG, fetch: slowApi.fetch }).getSupportedTokens()
       expect(all.map(t => t.chain)).toEqual([1, 8453, 137, 4663])
+      expect(most).toBe(1) // one chain at a time
     })
   })
 })
