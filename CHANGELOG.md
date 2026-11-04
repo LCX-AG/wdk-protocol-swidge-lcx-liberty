@@ -15,3 +15,5 @@ First release.
 - `getSupportedChains` and `getSupportedTokens` from the live API.
 - Retries a rate-limited (429) call after the wait the API asks for; `getSupportedTokens` fetches one chain at a time.
 - Every error extends a WDK standard error.
+- Built against `@tetherto/wdk-wallet` 1.0.0-beta.25 and tested with `@tetherto/wdk-wallet-evm` 1.0.0-beta.24;
+  the WDK packages and the dev tools are pinned to exact versions.
