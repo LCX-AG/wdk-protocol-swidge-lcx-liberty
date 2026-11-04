@@ -1,6 +1,6 @@
 # @lcx/wdk-protocol-swidge-lcx-liberty
 
-[![Powered by WDK](https://img.shields.io/badge/Powered%20by-WDK-blueviolet)](https://docs.wdk.tether.io)
+[<img src="assets/built-with-wdk.png" alt="Built with WDK" height="32">](https://wdk.tether.io)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 WDK swidge module for [LCX Liberty DEX](https://dex.lcx.com). Any WDK EVM wallet account can use it
